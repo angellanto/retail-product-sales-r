@@ -1,0 +1,415 @@
+# Library
+```{r}
+
+# Load necessary libraries
+library(readr)
+library(dplyr)
+library(zoo)
+library(plotly)
+library(tidyr)
+library(ggplot2)
+library(lubridate)
+
+```
+
+# Data Loading and Exploration
+```{r}
+# Load the dataset
+train_data <- train_data <- read.csv("C:\\Users\\Angel\\Downloads\\R-IA\\train.csv", stringsAsFactors = FALSE)
+
+# Inspect the first few rows of the dataset
+head(train_data)
+
+```
+```{r}
+
+# Display the structure and data types of each column
+str(train_data)
+
+```
+
+# Data Cleaning and Handling Missing Values
+```{r}
+
+# Check column names to confirm correct usage
+colnames(train_data)
+
+# Check first few rows of the date columns
+head(train_data$`Order.Date`)
+head(train_data$`Ship.Date`)
+
+# Strip any leading/trailing spaces from column names
+colnames(train_data) <- trimws(colnames(train_data))
+
+# Convert Order Date and Ship Date from character to Date
+train_data$`Order.Date` <- as.Date(train_data$`Order.Date`, format = "%d/%m/%Y")
+train_data$`Ship.Date` <- as.Date(train_data$`Ship.Date`, format = "%d/%m/%Y")
+
+# Verify the conversion
+str(train_data)
+
+```
+
+```{r}
+# Check for missing values
+missing_values <- colSums(is.na(train_data))
+
+# Display columns with missing values and their counts
+missing_values_df <- data.frame(Column = names(missing_values), Missing_Count = missing_values)
+
+# Filter out columns with no missing values
+missing_values_df <- missing_values_df[missing_values_df$Missing_Count > 0, ]
+
+# Display the result
+print(missing_values_df)
+
+```
+
+```{r}
+
+# Fill missing Postal Codes with a placeholder value: Postal code is not critical for analysis but still needs to be represented.
+train_data$`Postal.Code`[is.na(train_data$`Postal.Code`)] <- "00000" 
+
+```
+
+```{r}
+
+# Check for missing values in the data after filling
+missing_values_clean <- colSums(is.na(train_data))
+
+# Display the result
+print(missing_values_clean)
+
+```
+```{r}
+
+# Save the updated dataset to a new CSV file
+write.csv(train_data, "C:\\Users\\Angel\\Downloads\\R-IA\\updated_train_data.csv", row.names = FALSE)
+
+```
+
+# Data Transformation and Feature Engineering
+```{r}
+
+# Create a new column for Order Month
+train_data$Order.Month <- format(train_data$`Order.Date`, "%m")
+
+# Create a new feature for Delivery Time (in days)
+train_data$Delivery.Time <- as.numeric(difftime(train_data$`Ship.Date`, train_data$`Order.Date`, units = "days"))
+
+# Create a new feature for Sales Level
+train_data$Sales.Level <- cut(train_data$Sales,
+                               breaks = c(-Inf, 100, 500, Inf),
+                               labels = c("Low", "Medium", "High"))
+
+# Create a binary feature for Is Express Shipping
+train_data$Is.Express.Shipping <- ifelse(train_data$`Ship.Mode` %in% c("Second Class", "Standard Class"), 0, 
+                                          ifelse(train_data$`Ship.Mode` %in% c("First Class", "Same Day"), 1, NA))
+
+# Verify that the 'Is.Express.Shipping' column contains 0 and 1
+table(train_data$Is.Express.Shipping)
+
+# Inspect the first few rows of the dataset
+head(train_data)
+
+```
+
+# Grouping and Aggregation
+```{r}
+
+# Group the dataset by Product Name and Region, and calculate the total sales for each combination
+sales_summary <- train_data %>%
+  group_by(`Product.Name`, Region) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE)) %>%
+  arrange(Region, desc(Total_Sales))
+
+# Identify the top 5 products in each region based on total sales
+top_5_products <- sales_summary %>%
+  group_by(Region) %>%
+  top_n(5, Total_Sales) %>%
+  arrange(Region, desc(Total_Sales))
+
+# Display the summary table
+print(top_5_products)
+
+```
+# Data Visualization
+```{r}
+
+# Bar Chart to Visualize Total Sales by Product Category
+
+# Create new columns for Year and Month
+train_data$Year <- format(train_data$`Order.Date`, "%Y")
+train_data$Month <- format(train_data$`Order.Date`, "%m")
+
+# Summarize total sales by Product Category
+sales_by_category <- train_data %>%
+  group_by(Category, Year, Month) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE)) %>%
+  arrange(desc(Total_Sales))
+
+# Create an interactive bar chart with Year and Month filters
+bar_chart <- plot_ly(sales_by_category, x = ~reorder(Category, Total_Sales), y = ~Total_Sales, 
+                     type = 'bar', 
+                     marker = list(color = 'skyblue')) %>%
+  layout(
+    title = "Total Sales by Product Category",
+    xaxis = list(title = "Product Category", tickangle = 45),
+    yaxis = list(title = "Total Sales"),
+    updatemenus = list(
+      list(
+        # Dropdown for selecting Year
+        x = 0.1,
+        y = 1.1,
+        buttons = lapply(unique(sales_by_category$Year), function(year) {
+          list(method = "relayout", args = list("xaxis.range", c(as.Date(paste0(year, "-01-01")), as.Date(paste0(year, "-12-31")))),
+               label = year)
+        }),
+        direction = "down",
+        showactive = TRUE,
+        xanchor = "left", yanchor = "top",
+        pad = list(t = 10)
+      ),
+      list(
+        # Dropdown for selecting Month
+        x = 0.3,
+        y = 1.1,
+        buttons = lapply(unique(sales_by_category$Month), function(month) {
+          list(method = "relayout", args = list("xaxis.range", c(as.Date(paste0("2017-", month, "-01")), as.Date(paste0("2017-", month, "-28")))),
+               label = paste("Month", month))
+        }),
+        direction = "down",
+        showactive = TRUE,
+        xanchor = "left", yanchor = "top",
+        pad = list(t = 30)
+      )
+    )
+  )
+
+# Display the bar chart with Year and Month filters
+bar_chart
+
+
+```
+
+```{r}
+
+# Line Chart Showing the Trend of Total Sales Over Time (By Year/Month)
+
+# Create new columns for Year and Month
+train_data$Year <- format(train_data$`Order.Date`, "%Y")
+train_data$Month <- format(train_data$`Order.Date`, "%m")
+
+# Summarize total sales by Year-Month
+sales_by_time <- train_data %>%
+  group_by(Year, Month) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE))
+
+# Create a new column to represent Date for plotting (using the first day of the month)
+sales_by_time$Date <- as.Date(paste(sales_by_time$Year, sales_by_time$Month, "01", sep = "-"))
+
+# Create an interactive line chart with Year and Month filters
+line_chart <- plot_ly(sales_by_time, x = ~Date, y = ~Total_Sales, type = 'scatter', mode = 'lines+markers', 
+                      line = list(color = 'blue', width = 2)) %>%
+  layout(
+    title = "Total Sales Over Time (Year/Month)",
+    xaxis = list(title = "Date"),
+    yaxis = list(title = "Total Sales"),
+    updatemenus = list(
+      list(
+        # Dropdown for selecting Year
+        x = 0.1,
+        y = 1.15,
+        buttons = lapply(unique(sales_by_time$Year), function(year) {
+          list(method = "relayout", args = list("xaxis.range", c(as.Date(paste0(year, "-01-01")), as.Date(paste0(year, "-12-31")))),
+               label = year)
+        }),
+        direction = "down",
+        showactive = TRUE,
+        xanchor = "left", yanchor = "top",
+        pad = list(t = 10)
+      ),
+      list(
+        # Dropdown for selecting Month
+        x = 0.3,
+        y = 1.15,
+        buttons = lapply(unique(sales_by_time$Month), function(month) {
+          list(method = "relayout", args = list("xaxis.range", c(as.Date(paste0("2017-", month, "-01")), as.Date(paste0("2017-", month, "-28")))),
+               label = paste("Month", month))
+        }),
+        direction = "down",
+        showactive = TRUE,
+        xanchor = "left", yanchor = "top",
+        pad = list(t = 30)
+      )
+    )
+  )
+
+# Display the line chart with Year and Month filters
+line_chart
+
+```
+# Data Manipulation and Reshaping
+```{r}
+
+# Summarize total sales by Product Category and Segment
+sales_by_category_segment <- train_data %>%
+  group_by(Category, Segment) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE)) %>%
+  pivot_wider(names_from = Segment, values_from = Total_Sales, values_fill = list(Total_Sales = 0))
+
+# Display the pivot table
+print(sales_by_category_segment)
+
+```
+```{r}
+
+# Summarize total sales by Region and Month
+sales_by_region_month <- train_data %>%
+  mutate(Month = format(as.Date(`Order.Date`), "%Y-%m")) %>%
+  group_by(Region, Month) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE)) %>%
+  pivot_wider(names_from = Month, values_from = Total_Sales, values_fill = list(Total_Sales = 0))
+
+# Display the pivot table
+print(sales_by_region_month)
+
+```
+# Predicting Future Sales with Regression
+```{r}
+
+# Create a new column for Order Month
+train_data$Order.Month <- format(train_data$`Order.Date`, "%m")
+
+# Aggregate sales data by 'Order.Month' and calculate total sales for each month
+sales_by_month <- train_data %>%
+  group_by(Order.Month) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE))
+
+# Create an interactive plot using Plotly
+monthly_sales_plot <- plot_ly(sales_by_month, x = ~Order.Month, y = ~Total_Sales, type = 'scatter', mode = 'lines+markers',
+                              line = list(color = 'blue', width = 2), marker = list(color = 'red', size = 5)) %>%
+  layout(
+    title = "Monthly Sales Trend",
+    xaxis = list(title = "Order Month"),
+    yaxis = list(title = "Total Sales"),
+    xaxis = list(tickangle = 45)  # Rotate x-axis labels for better readability
+  )
+
+# Display the interactive plot
+monthly_sales_plot
+
+```
+```{r}
+# Create a new column for 'Order.Year' (Year in 'YYYY' format)
+train_data$Order.Year <- format(train_data$`Order.Date`, "%Y")
+
+# Aggregate sales data by 'Order.Month' and 'Order.Year'
+sales_by_month_year <- train_data %>%
+  group_by(Order.Year, Order.Month) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE))
+
+# Create an interactive plot using Plotly, with different lines for each year
+monthly_sales_plot <- plot_ly()
+
+# Loop over each year and create a line for each
+for(year in unique(sales_by_month_year$Order.Year)) {
+  # Filter data for the specific year
+  sales_year <- sales_by_month_year %>%
+    filter(Order.Year == year)
+  
+  # Add the line trace for the year
+  monthly_sales_plot <- monthly_sales_plot %>%
+    add_trace(
+      data = sales_year,
+      x = ~Order.Month,
+      y = ~Total_Sales,
+      type = 'scatter',
+      mode = 'lines+markers',
+      line = list(width = 2),
+      name = year # Set the name of the line as the year
+    )
+}
+
+# Customize layout
+monthly_sales_plot <- monthly_sales_plot %>%
+  layout(
+    title = "Monthly Sales Trend by Year",
+    xaxis = list(title = "Order Month"),
+    yaxis = list(title = "Total Sales"),
+    xaxis = list(tickangle = 45),  # Rotate x-axis labels for better readability
+    showlegend = TRUE
+  )
+
+# Display the plot
+monthly_sales_plot
+
+```
+
+```{r}
+
+# Prepare the data
+train_data$Order.Month <- as.numeric(format(train_data$`Order.Date`, "%m"))
+train_data$Order.Year <- as.numeric(format(train_data$`Order.Date`, "%Y"))
+
+# Aggregate sales data by Order.Month
+sales_by_month <- train_data %>%
+  group_by(Order.Month) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE))
+
+# Create a linear regression model
+sales_lm <- lm(Total_Sales ~ Order.Month, data = sales_by_month)
+
+# Show the summary of the regression model
+summary(sales_lm)
+
+# Predict sales for the next 3 months (we need to add the next 3 months to the data)
+future_months <- data.frame(Order.Month = max(sales_by_month$Order.Month) + 1:3)
+
+# Predict future sales using the regression model
+future_sales <- predict(sales_lm, newdata = future_months)
+
+# Combine the predicted sales with future months
+future_months$Predicted_Sales <- future_sales
+
+# Display the predicted future sales
+print(future_months)
+
+# Create an interactive plot with Plotly to show historical sales and regression line
+monthly_sales_plot <- plot_ly(sales_by_month, x = ~Order.Month, y = ~Total_Sales, type = 'scatter', mode = 'lines+markers',
+                              line = list(color = 'blue', width = 2), marker = list(color = 'red', size = 5)) %>%
+  add_trace(x = future_months$Order.Month, y = future_months$Predicted_Sales, 
+            mode = 'markers', marker = list(color = 'green', size = 8)) %>%
+  layout(
+    title = "Monthly Sales Trend with Regression Prediction",
+    xaxis = list(title = "Order Month"),
+    yaxis = list(title = "Total Sales"),
+    xaxis = list(tickangle = 45),  # Rotate x-axis labels for better readability
+    showlegend = TRUE
+  )
+
+# Display the interactive plot
+monthly_sales_plot
+
+```
+
+```{r}
+
+# Evaluate the regression model
+sales_by_month$Predicted_Sales <- predict(sales_lm, newdata = sales_by_month)
+
+# Calculate Mean Absolute Error (MAE) and Root Mean Squared Error (RMSE)
+mae <- mean(abs(sales_by_month$Total_Sales - sales_by_month$Predicted_Sales))
+rmse <- sqrt(mean((sales_by_month$Total_Sales - sales_by_month$Predicted_Sales)^2))
+
+cat("Mean Absolute Error (MAE):", mae, "\n")
+cat("Root Mean Squared Error (RMSE):", rmse, "\n")
+
+```
+
+
+
+
+
+
+
